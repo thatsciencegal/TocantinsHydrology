@@ -5,9 +5,18 @@ write.na<-function(){
   dat$nas <- as.integer(as.logical(is.na(dat$Water.Level..cm.)))
   dat$nas_lead <- lead(dat$nas, n=1)
   dat$nas_diff <- dat$nas_lead-dat$nas
+  if(dat$nas[1]==1){
+    dat$nas_diff[1] <- 1
+  }
   na_start <- filter(dat, lag(nas_diff==1)) %>% select(Date)
   names(na_start) <- "StartDate"
-  na_end<-(filter(dat, nas_diff==1)) %>% select(Date)
+  if(na_start$StartDate[1] == dat$Date[2]){
+    na_start$StartDate[1] <- dat$Date[1]
+  }
+  if(dat$nas[nrow(dat)]==1){
+    dat$nas_diff[nrow(dat)] <- -1
+  }
+  na_end<-(filter(dat, nas_diff==-1)) %>% select(Date)
   names(na_end) <- "End Date"
   dat2 <- cbind(na_start,na_end)
   
@@ -28,4 +37,5 @@ for(i in 1:length(file.list)){
 #Find the consecutive NA values for each dataset
 for(i in 1:length(stat)){
   write.na()
+  print(paste0("finished with station ", stat[i], " ", i))
 }
