@@ -3,17 +3,19 @@ library(raster)
 library(sp)
 library(rgdal)
 library(dplyr)
+library(stringr)
 
 #Read in the dem
-to.dem <- raster("../GIS/to_dem.tif")
+to.dem <- raster("C:/Users/starg/Dropbox/Dissertation/Chapter1/Data/GIS/DEMs/to_dem.tif")
 
 foo <- function(station, xmin=1000, xmax=1000) {
   #Function to create a raster of water level minus elevation
   
   #Read in the data file and filter out points before 1994
-  in_file <- paste0("C:/Users/starg/Dropbox/Dissertation/Data/Hydrology/Cotas/Cotas_", stat[i], ".csv")
-  lev<-read.csv(in_file) %>% filter(year(mdy(Date))>=1994)
+  #in_file <- paste0("C:/Users/starg/Dropbox/Dissertation/Data/Hydrology/Cotas/Cotas_", station, ".csv")
+  #lev<-read.csv(in_file) %>% filter(year(mdy(Date))>=1990)
   
+  lev <- wat.lev3
   #Turn file into a spatial points dataframe
   nr<-nrow(lev)
   if(nr==0){
@@ -26,13 +28,13 @@ foo <- function(station, xmin=1000, xmax=1000) {
   topo <- raster::extract(to.dem,xy)
   
   #Add ground elevation to water level and convert water level to meters
-  lev.spdf@data$water_level<-topo[1]+(0.01*lev.spdf@data$Water.Level..cm.)
+  lev.spdf@data$water_level<-topo[1]+(0.01*lev.spdf@data$Level)
   
   #Make a raster of water elevation for each day in the dataset
   ext<-vector("list",nr)
   for(i in 1:nr){
     ext[[i]]<-raster(nrows=8,ncol=xmin+xmax,xmn=(xy[1,1]-((xmin)*0.0002777778)),xmx=(xy[1,1]+(xmax*0.0002777778)),
-                     ymn=(xy[1,2]-(4*0.0002777778)),ymx=(xy[1,2]+(4*0.0002777778)), resolution=c(0.0002777778,0.0002777778),
+                     ymn=(xy[1,2]-(8*0.0002777778)),ymx=(xy[1,2]+(8*0.0002777778)), resolution=c(0.0002777778,0.0002777778),
                      crs="+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0",
                      val=lev.spdf@data[i,]$water_level)
   }
@@ -44,8 +46,8 @@ foo <- function(station, xmin=1000, xmax=1000) {
   #Rectify the two extents so you can perform raster math
   if(dim(to.sm)[2]>dim(ext[[1]])[2]){
     for(i in 1:nr){
-      ext[[i]]<-raster(nrows=8,ncol=xmin+xmax,xmn=(xy[1,1]-((xmin+1)*0.0002777778)),xmx=(xy[1,1]+(xmax*0.0002777778)),
-                       ymn=(xy[1,2]-(4*0.0002777778)),ymx=(xy[1,2]+(4*0.0002777778)), resolution=c(0.0002777778,0.0002777778),
+      ext[[i]]<-raster(nrows=16,ncol=xmin+xmax,xmn=(xy[1,1]-((xmin+1)*0.0002777778)),xmx=(xy[1,1]+(xmax*0.0002777778)),
+                       ymn=(xy[1,2]-(8*0.0002777778)),ymx=(xy[1,2]+(8*0.0002777778)), resolution=c(0.0002777778,0.0002777778),
                        crs="+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0",
                        val=lev.spdf@data[i,]$water_level)
     }
@@ -71,7 +73,7 @@ foo <- function(station, xmin=1000, xmax=1000) {
   rm(list=c("lev.list"))
   
   #Separate each year into its own raster
-  d <- mdy(lev.spdf@data$Date)
+  d <- ymd(lev.spdf@data$Date)
   
   list_of_id <- split(1:nr, year(d))
   
@@ -80,7 +82,7 @@ foo <- function(station, xmin=1000, xmax=1000) {
     lev.thisyr <- sum(stack(lev.rcl[list_of_id[[i]]]), na.rm = T)
     
     #Write out yearly days inundated raster files
-    out_file <- paste0("C:/Users/starg/Dropbox/Dissertation/Chapter1/Data/GIS/lev_", station, "_", names(list_of_id)[i], ".tif")
+    out_file <- paste0("C:/Users/starg/Dropbox/Dissertation/Chapter1/Data/GIS/WaterLevelRasters/ADNdata/lev_", station, "_", names(list_of_id)[i], ".tif")
     writeRaster(lev.thisyr, out_file, overwrite=TRUE)
   }
 } }
@@ -107,4 +109,61 @@ for(i in 1:length(stat)){
   beepr::beep(sound=8)
 }
 
+#Change number of days inundated to percent of days inundated
+rast.list <- list.files(path="../Data/GIS/WaterLevelRasters/ADNdata", pattern="lev_2205.*tif", full.names = TRUE)
+for(i in 1:(length(rast.list)-1)){
+  rast <- raster(rast.list[i])
+  rast2 <- rast/rast@data@max
+  writeRaster(rast2, paste0("../Data/GIS/WaterLevelRasters/ADNdata/PercentRasters/per_",str_extract(rast.list[i], "[[:digit:]]+_[[:digit:]]+"), ".tif"), overwrite = TRUE)
+  print(paste0("Completed ", str_extract(rast.list[i], "[[:digit:]]+_[[:digit:]]+")))
+}
 
+#Read in percent inundated rasters before/after dam
+per.list <- list.files(path="../Data/GIS/WaterLevelRasters/ADNdata/PercentRasters/", full.names=TRUE)
+
+#Read in pre-dam rasteres
+before.rast <- list()
+for(i in 1:27){
+  before.rast[[i]]<-raster(per.list[[i]])
+}
+
+#Stack pre-dam rasters and calculate the mean
+before.stack <- stack(before.rast)
+before.mean <- calc(before.stack, fun=mean)
+writeRaster(before.mean, filename="../Data/GIS/WaterLevelRasters/ADNdata/MeanRasters/before_22050001.tif")
+
+#Read in, stack, calculate mean of during construction rasters
+during.rast <- list()
+for(i in 28:30){
+  during.rast[[i-27]]<-raster(per.list[[i]])
+}
+during.stack <- stack(during.rast)
+during.mean <- calc(during.stack, fun=mean)
+writeRaster(during.mean, filename="../Data/GIS/WaterLevelRasters/ADNdata/MeanRasters/during_22050001.tif")
+
+#Read in, stack, calculate mean of post Serra da Mesa rasters
+after.sdm.rast <- list()
+for(i in 31:37){
+  after.sdm.rast[[i-30]]<-raster(per.list[[i]])
+}
+after.sdm.stack <- stack(after.sdm.rast)
+after.sdm.mean <- calc(after.sdm.stack, fun=mean)
+writeRaster(after.sdm.mean, filename = "../Data/GIS/WaterLevelRasters/ADNdata/MeanRasters/after_sdm_22050001.tif")
+
+#Read in, stack, calculate mean of post Peixe Angical rasters
+after.pean.rast <- list()
+for(i in 38:47){
+  after.pean.rast[[i-37]]<-raster(per.list[[i]])
+}
+after.pean.stack <- stack(after.pean.rast)
+after.pean.mean <- calc(after.pean.stack, fun=mean)
+writeRaster(after.pean.mean, filename = "../Data/GIS/WaterLevelRasters/ADNdata/MeanRasters/after_pean_22050001.tif")
+
+#Calculate the difference between pre- and post-damming floodplains
+diff.sdm <- after.sdm.mean-before.mean
+plot(diff.sdm)
+writeRaster(diff.sdm, filename="../Data/GIS/WaterLevelRasters/ADNdata/MeanRasters/diff_sdm_22050001.tif", overwrite=TRUE)
+
+diff.pean <- after.pean.mean-before.mean
+plot(diff.pean)
+writeRaster(diff.pean, filename="../Data/GIS/WaterLevelRasters/ADNdata/MeanRasters/diff_pean_22050001.tif", overwrite=TRUE)
